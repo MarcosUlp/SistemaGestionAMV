@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión Documental AMV</title>
+    <!-- Carga de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fuente Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Estilos base para la simulación móvil (DT/Delegado) */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Gris claro */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        /* Contenedor principal que simula la pantalla del móvil */
+        #mobile-container {
+            width: 100%;
+            max-width: 420px; /* Ancho típico de un móvil */
+            height: 80vh; /* Altura para simular app */
+            max-height: 800px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            background-color: #ffffff;
+            position: relative;
+        }
+        /* Estilo específico para el AMV Admin (vista web/desktop) */
+        .amv-admin-mode {
+            max-width: 1000px !important;
+            height: auto !important;
+            max-height: none !important;
+            border-radius: 8px !important;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15) !important;
+        }
+
+        /* Colores según el logo */
+        .amv-red { background-color: #D93637; } /* Rojo principal */
+        .amv-green { background-color: #228B22; } /* Verde secundario */
+        .amv-text-red { color: #D93637; }
+        .amv-border-red { border-color: #D93637; }
+        .amv-text-green { color: #228B22; }
+
+        /* Estilos para indicadores de estado (RNF02) */
+        .status-aprobado { background-color: #10B981; } /* Verde Tailwind */
+        .status-pendiente { background-color: #FBBF24; } /* Amarillo Tailwind */
+        .status-rechazado { background-color: #EF4444; } /* Rojo Tailwind */
+    </style>
+</head>
+<body>
+
+    <div id="mobile-container">
+        <!-- Contenedor principal de vistas -->
+        <div id="views" class="h-full">
+            <!-- Las vistas se insertarán aquí por JavaScript -->
+        </div>
+
+        <!-- Componente de Mensaje/Modal (para simular alertas sin alert()) -->
+        <div id="message-box" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+            <div class="bg-white rounded-xl p-6 shadow-2xl w-full max-w-sm">
+                <p id="message-text" class="text-gray-800 font-semibold mb-4 text-center"></p>
+                <button onclick="document.getElementById('message-box').classList.add('hidden')"
+                    class="w-full py-2 amv-red text-white font-bold rounded-lg transition duration-150 hover:bg-red-700">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const views = {
+            login: 'login-view',
+            dashboard: 'dashboard-view',
+            players: 'players-view',
+            document: 'document-view',
+            newTeam: 'new-team-view',
+            newPlayer: 'new-player-view',
+            adminUsers: 'admin-users-view', // Nueva vista AMV
+            reviewDocs: 'review-docs-view', // Nueva vista AMV
+            generateReport: 'generate-report-view' // Nueva vista AMV
+        };
+
+        let currentState = {
+            currentView: views.login,
+            userRole: null, // 'club' | 'amv' | 'dt'
+            selectedTeam: null,
+            selectedPlayer: null
+        };
+
+        // Datos Mock para simular la aplicación
+        const clubData = {
+            clubName: "Club Atlético Volley",
+            teams: [
+                { id: 1, name: "Sub 14 Femenino", category: "Formativa" },
+                { id: 2, name: "Mayores Masculino", category: "Mayor" },
+                { id: 3, name: "Sub 16 Masculino", category: "Formativa" },
+            ],
+            players: [
+                { id: 101, name: "Martina Pérez", teamId: 1, docStatus: { ficha: 'Aprobado', dni: 'Pendiente', auth: 'Rechazado' } },
+                { id: 102, name: "Sofía Gómez", teamId: 1, docStatus: { ficha: 'Aprobado', dni: 'Aprobado', auth: 'Aprobado' } },
+                { id: 103, name: "Juan Lopez", teamId: 2, docStatus: { ficha: 'Pendiente', dni: 'Rechazado', auth: 'Pendiente' } },
+                { id: 104, name: "Carlos Díaz", teamId: 2, docStatus: { ficha: 'Aprobado', dni: 'Aprobado', auth: 'Pendiente' } },
+            ],
+            docTypes: [
+                { id: 'ficha', name: 'Ficha Médica' },
+                { id: 'dni', name: 'Copia DNI' },
+                { id: 'auth', name: 'Autorización Tutor' }
+            ],
+            users: [
+                { id: 501, name: "Lucía Fernández", club: "Club Atlético Volley", role: "DT/Delegado", status: "Activo" },
+                { id: 502, name: "Pedro Giménez", club: "Club Central Voley", role: "DT/Delegado", status: "Inactivo" },
+                { id: 503, name: "Mariana Rojas", club: "Club Deportivo Unión", role: "DT/Delegado", status: "Activo" },
+            ]
+        };
+
+        /** UTILS **/
+        function showMessage(text) {
+            document.getElementById('message-text').innerText = text;
+            document.getElementById('message-box').classList.remove('hidden');
+        }
+
+        function handleLogout() {
+            const mobileContainer = document.getElementById('mobile-container');
+            // Restablecer el estado
+            currentState.userRole = null;
+            currentState.selectedTeam = null;
+            currentState.selectedPlayer = null;
+            currentState.currentView = views.login;
+            
+            // Si estaba en modo AMV Admin, restaurar el tamaño del móvil
+            if (mobileContainer.classList.contains('amv-admin-mode')) {
+                mobileContainer.classList.remove('amv-admin-mode');
+            }
+
+            render();
+        }
+
+        function navigate(viewName, data = {}) {
+            currentState.currentView = viewName;
+            if (viewName === views.players) {
+                currentState.selectedTeam = data.team;
+            } else if (viewName === views.document) {
+                currentState.selectedPlayer = data.player;
+            } else if (viewName === views.newPlayer) {
+                // Para el alta de jugador, necesitamos saber el equipo actual
+                currentState.selectedTeam = data.team;
+            }
+            render();
+        }
+        
+        // Función para volver de la vista Documental a la Lista de Jugadores de su equipo
+        function goBackToTeamPlayers(playerId) {
+            const player = clubData.players.find(p => p.id === playerId);
+            if (player) {
+                const team = clubData.teams.find(t => t.id === player.teamId);
+                navigate(views.players, { team });
+            } else {
+                navigate(views.dashboard); // Fallback al Dashboard
+            }
+        }
+        
+        // Función para navegar a la vista de Documentación del Jugador
+        function goToPlayerDocumentView(playerId) {
+            const player = clubData.players.find(p => p.id === playerId);
+            if (player) {
+                navigate(views.document, { player });
+            } else {
+                showMessage('Error: Jugador no encontrado.');
+            }
+        }
+        
+        // Función para navegar de Dashboard a Lista de Jugadores
+        function goToTeamPlayersView(teamId) {
+            const team = clubData.teams.find(t => t.id === teamId);
+            if (team) {
+                navigate(views.players, { team });
+            } else {
+                showMessage('Error: Equipo no encontrado.');
+            }
+        }
+
+        function getStatusColor(status) {
+            switch (status) {
+                case 'Aprobado': return 'status-aprobado';
+                case 'Pendiente': return 'status-pendiente';
+                case 'Rechazado': return 'status-rechazado';
+                case 'No Presentado': // Tratamos este como Pendiente
+                default: return 'status-pendiente';
+            }
+        }
+
+        function checkOverallStatus(docStatus) {
+            const statuses = Object.values(docStatus);
+            // Si hay algún rechazado, el estado general es Rechazado.
+            if (statuses.includes('Rechazado')) return 'Rechazado';
+            // Si no hay rechazados, pero hay pendientes, el estado general es Pendiente.
+            const hasPending = statuses.some(status => status === 'Pendiente' || status === 'No Presentado');
+            if (hasPending) return 'Pendiente';
+            // Si no hay rechazados ni pendientes/no presentados, todo está Aprobado.
+            return 'Aprobado';
+        }
+
+        /** VISTAS (Templates HTML) **/
+
+        // 1. VISTA DE LOGIN (Común para AMV y DT/Delegado)
+        function renderLoginView() {
+            return `
+                <div class="${views.login} p-6 h-full flex flex-col justify-center items-center bg-gray-50">
+                    <img src="logoAMV.png" alt="Logo AMV" class="w-24 h-24 mb-6">
+                    <h1 class="text-3xl font-extrabold text-gray-800 mb-2">Iniciar Sesión</h1>
+                    <p class="text-gray-500 mb-8 text-center">Gestión Documental AMV</p>
+
+                    <div class="w-full max-w-xs space-y-4">
+                        <input type="email" id="user-email" placeholder="Usuario / Email"
+                            class="w-full p-3 border amv-border-red rounded-lg focus:ring-2 focus:ring-red-300 focus:outline-none">
+                        <input type="password" id="user-password" placeholder="Contraseña"
+                            class="w-full p-3 border amv-border-red rounded-lg focus:ring-2 focus:ring-red-300 focus:outline-none">
+                        
+                        <button onclick="handleLogin()"
+                            class="w-full py-3 amv-red text-white font-bold rounded-lg shadow-lg transition duration-150 hover:bg-red-700">
+                            INGRESAR
+                        </button>
+
+                        <p class="text-sm text-center text-gray-400 mt-4">Demo: "AMV" para Admin Web, "club" para App Móvil</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 2. VISTA DASHBOARD DT/DELEGADO (Móvil)
+        function renderDashboardView() {
+            const teamsHtml = clubData.teams.map(team => {
+                const playersInTeam = clubData.players.filter(p => p.teamId === team.id);
+                // Contar jugadores con estado Pendiente o Rechazado
+                const pendingCount = playersInTeam.filter(p => ['Pendiente', 'Rechazado'].includes(checkOverallStatus(p.docStatus))).length;
+                
+                return `
+                    <div class="bg-white rounded-xl shadow-md overflow-hidden mb-4 transition duration-150 hover:shadow-lg cursor-pointer" 
+                         onclick="goToTeamPlayersView(${team.id})">
+                        <div class="p-4 flex justify-between items-center">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">${team.name}</h3>
+                                <p class="text-sm text-gray-500">${team.category} | ${playersInTeam.length} Jugadores</p>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                ${pendingCount > 0 ? 
+                                    `<span class="text-xs font-bold text-white status-rechazado px-3 py-1 rounded-full">${pendingCount} Pendientes</span>` :
+                                    `<span class="text-xs font-bold text-white status-aprobado px-3 py-1 rounded-full">Al día</span>`
+                                }
+                                <svg class="w-5 h-5 amv-text-red" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="h-full flex flex-col">
+                    <!-- Header -->
+                    <header class="amv-red text-white p-4 flex justify-between items-center shadow-lg">
+                        <h2 class="text-xl font-bold">Mis Equipos</h2>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm hidden sm:inline">Club: ${clubData.clubName}</span>
+                            <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-red-700 transition duration-150">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                            </button>
+                        </div>
+                    </header>
+                    
+                    <!-- Content -->
+                    <div class="flex-grow p-4 overflow-y-auto bg-gray-50">
+                        <p class="text-gray-600 mb-4 font-semibold">Selecciona un equipo para gestionar su plantilla y documentación.</p>
+                        ${teamsHtml}
+                    </div>
+
+                    <!-- Footer (Botón de Acción - Agregar Equipo) -->
+                    <div class="p-4 bg-white border-t border-gray-200">
+                        <button onclick="navigate('${views.newTeam}')"
+                            class="w-full py-3 amv-green text-white font-bold rounded-lg shadow-lg transition duration-150 hover:bg-green-700">
+                            + Agregar Equipo
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 3. VISTA LISTA DE JUGADORES POR EQUIPO (Móvil)
+        function renderPlayersView() {
+            const team = currentState.selectedTeam;
+            if (!team) return '<div>Error: Equipo no seleccionado.</div>';
+
+            const playersInTeam = clubData.players.filter(p => p.teamId === team.id);
+
+            const playersHtml = playersInTeam.map(player => {
+                const overallStatus = checkOverallStatus(player.docStatus);
+                const statusColor = getStatusColor(overallStatus);
+
+                return `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-3 cursor-pointer" 
+                         onclick="goToPlayerDocumentView(${player.id})">
+                        <div class="p-3 flex justify-between items-center">
+                            <div>
+                                <h4 class="text-md font-semibold text-gray-800">${player.name}</h4>
+                                <p class="text-xs text-gray-500">ID: ${player.id}</p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white px-3 py-1 rounded-full ${statusColor}">
+                                    ${overallStatus}
+                                </span>
+                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+
+            return `
+                <div class="h-full flex flex-col">
+                    <!-- Header -->
+                    <header class="amv-red text-white p-4 shadow-lg flex justify-between items-start">
+                        <div>
+                            <button onclick="navigate('${views.dashboard}')" class="flex items-center mb-2 text-sm opacity-80 hover:opacity-100">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                                Volver a Equipos
+                            </button>
+                            <h2 class="text-xl font-bold">${team.name}</h2>
+                            <p class="text-sm opacity-90">${playersInTeam.length} Jugadores</p>
+                        </div>
+                        <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-red-700 transition duration-150 mt-1">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </header>
+                    
+                    <!-- Content -->
+                    <div class="flex-grow p-4 overflow-y-auto bg-gray-50">
+                        <p class="text-gray-600 mb-4 font-semibold">Listado de Jugadores del Equipo (${team.category}).</p>
+                        ${playersHtml}
+                    </div>
+
+                    <!-- Footer (Botón de Acción - Agregar Jugador) -->
+                    <div class="p-4 bg-white border-t border-gray-200">
+                        <button onclick="navigate('${views.newPlayer}', {team: currentState.selectedTeam})"
+                            class="w-full py-3 amv-green text-white font-bold rounded-lg shadow-lg transition duration-150 hover:bg-green-700">
+                            + Agregar Jugador
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 4. VISTA DETALLE DE JUGADOR Y GESTIÓN DOCUMENTAL (Móvil)
+        function renderDocumentView() {
+            const player = currentState.selectedPlayer;
+            if (!player) return '<div>Error: Jugador no seleccionado.</div>';
+
+            const documentsHtml = clubData.docTypes.map(doc => {
+                const status = player.docStatus[doc.id] || 'No Presentado';
+                const statusColor = getStatusColor(status);
+
+                return `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-3 p-4 flex justify-between items-center">
+                        <div>
+                            <h4 class="text-md font-semibold text-gray-800">${doc.name}</h4>
+                            <p class="text-xs text-gray-500">Estado: <span class="font-bold">${status}</span></p>
+                        </div>
+                        <button onclick="showMessage('Funcionalidad: Subir/Revisar Archivo para ${doc.name} (RF06)')"
+                            class="py-2 px-4 rounded-lg text-sm font-bold text-white transition duration-150 ${statusColor === 'status-aprobado' ? 'bg-gray-500 hover:bg-gray-600' : 'amv-red hover:bg-red-700'}">
+                            ${status === 'Aprobado' ? 'Ver Archivo' : 'Subir/Reemplazar'}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="h-full flex flex-col">
+                    <!-- Header -->
+                    <header class="amv-green text-white p-4 shadow-lg flex justify-between items-start">
+                        <div>
+                            <button onclick="goBackToTeamPlayers(${player.id})" class="flex items-center mb-2 text-sm opacity-80 hover:opacity-100">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                                Volver a Lista
+                            </button>
+                            <h2 class="text-xl font-bold">${player.name}</h2>
+                            <p class="text-sm opacity-90">Gestión Documental Individual</p>
+                        </div>
+                        <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-green-800 transition duration-150 mt-1">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </header>
+                    
+                    <!-- Content -->
+                    <div class="flex-grow p-4 overflow-y-auto bg-gray-50">
+                        
+                        <!-- Sección de Información Básica -->
+                        <div class="bg-white rounded-xl p-4 mb-4 shadow-md">
+                            <div class="flex justify-between items-center mb-3 border-b pb-2">
+                                <h3 class="text-lg font-bold amv-text-red">Información del Jugador</h3>
+                                <button onclick="showMessage('Funcionalidad: Editar Datos del Jugador (RF04)')"
+                                    class="text-sm text-gray-500 hover:text-gray-800 font-semibold">
+                                    Editar
+                                </button>
+                            </div>
+                            <p class="text-sm text-gray-700">Equipo: ${clubData.teams.find(t => t.id === player.teamId).name}</p>
+                            <p class="text-sm text-gray-700">DNI: XX.XXX.XXX</p>
+                            <p class="text-sm text-gray-700">Fecha Nac.: DD/MM/AAAA</p>
+                        </div>
+
+                        <!-- Sección de Documentación -->
+                        <h3 class="text-lg font-bold text-gray-800 mb-3">Documentos Obligatorios</h3>
+                        ${documentsHtml}
+                        <p class="text-xs text-gray-500 mt-4 text-center">Una vez subidos, los documentos pasarán a estado 'Pendiente de Revisión' para el personal AMV.</p>
+
+                    </div>
+                </div>
+            `;
+        }
+
+        // 5. VISTA DE ALTA DE EQUIPO (Móvil)
+        function renderNewTeamView() {
+            return `
+                <div class="h-full flex flex-col">
+                    <!-- Header -->
+                    <header class="amv-red text-white p-4 shadow-lg flex justify-between items-start">
+                        <div>
+                            <button onclick="navigate('${views.dashboard}')" class="flex items-center mb-2 text-sm opacity-80 hover:opacity-100">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                                Volver a Mis Equipos
+                            </button>
+                            <h2 class="text-xl font-bold">Alta de Nuevo Equipo</h2>
+                            <p class="text-sm opacity-90">Registro en ${clubData.clubName}</p>
+                        </div>
+                        <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-red-700 transition duration-150 mt-1">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </header>
+                    
+                    <!-- Content (Formulario de Equipo) -->
+                    <div class="flex-grow p-4 overflow-y-auto bg-gray-50 space-y-4">
+                        <div class="bg-white p-4 rounded-xl shadow-md space-y-3">
+                            <h3 class="text-lg font-bold amv-text-red">Datos del Equipo</h3>
+                            
+                            <label class="block text-sm font-medium text-gray-700">Nombre del Equipo</label>
+                            <input type="text" placeholder="Ej: Sub 18 Femenino"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-300 focus:outline-none">
+                            
+                            <label class="block text-sm font-medium text-gray-700">Categoría</label>
+                            <select class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-300 focus:outline-none">
+                                <option>Formativa</option>
+                                <option>Mayor</option>
+                                <option>Maxi Vóley</option>
+                            </select>
+
+                            <label class="block text-sm font-medium text-gray-700">Director Técnico</label>
+                            <input type="text" placeholder="Nombre y Apellido del DT"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-300 focus:outline-none">
+
+                        </div>
+                    </div>
+
+                    <!-- Footer (Botón de Guardado) -->
+                    <div class="p-4 bg-white border-t border-gray-200">
+                        <button onclick="showMessage('Funcionalidad: Equipo registrado correctamente. (RF03/RF05)')"
+                            class="w-full py-3 amv-green text-white font-bold rounded-lg shadow-lg transition duration-150 hover:bg-green-700">
+                            REGISTRAR EQUIPO
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 6. VISTA DE ALTA DE JUGADOR (Móvil)
+        function renderNewPlayerView() {
+            const team = currentState.selectedTeam;
+            if (!team) return '<div>Error: Equipo no seleccionado para el alta.</div>';
+
+            return `
+                <div class="h-full flex flex-col">
+                    <!-- Header -->
+                    <header class="amv-red text-white p-4 shadow-lg flex justify-between items-start">
+                        <div>
+                            <button onclick="navigate('${views.players}', {team: currentState.selectedTeam})" class="flex items-center mb-2 text-sm opacity-80 hover:opacity-100">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                                Volver a Lista de Jugadores
+                            </button>
+                            <h2 class="text-xl font-bold">Alta de Jugador</h2>
+                            <p class="text-sm opacity-90">Equipo: ${team.name}</p>
+                        </div>
+                        <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-red-700 transition duration-150 mt-1">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </header>
+                    
+                    <!-- Content (Formulario de Jugador) -->
+                    <div class="flex-grow p-4 overflow-y-auto bg-gray-50 space-y-4">
+                        <div class="bg-white p-4 rounded-xl shadow-md space-y-3">
+                            <h3 class="text-lg font-bold amv-text-red">Datos Personales (RF04)</h3>
+                            
+                            <label class="block text-sm font-medium text-gray-700">Nombre y Apellido</label>
+                            <input type="text" placeholder="Nombre completo"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-300 focus:outline-none">
+                            
+                            <label class="block text-sm font-medium text-gray-700">DNI (Sin puntos)</label>
+                            <input type="number" placeholder="Ej: 30123456"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-300 focus:outline-none">
+                            
+                            <label class="block text-sm font-medium text-gray-700">Fecha de Nacimiento</label>
+                            <input type="date"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-300 focus:outline-none">
+                        </div>
+
+                        <div class="bg-white p-4 rounded-xl shadow-md space-y-3">
+                            <h3 class="text-lg font-bold amv-text-red">Asignación (RF05)</h3>
+                            <p class="text-sm text-gray-600">El jugador será registrado en el equipo actual.</p>
+                            
+                            <label class="block text-sm font-medium text-gray-700">Equipo</label>
+                            <input type="text" value="${team.name}" disabled
+                                class="w-full p-3 border border-gray-300 bg-gray-100 rounded-lg">
+                        </div>
+                    </div>
+
+                    <!-- Footer (Botón de Guardado) -->
+                    <div class="p-4 bg-white border-t border-gray-200">
+                        <button onclick="showMessage('Funcionalidad: Jugador registrado correctamente en ${team.name}. (RF04)')"
+                            class="w-full py-3 amv-green text-white font-bold rounded-lg shadow-lg transition duration-150 hover:bg-green-700">
+                            GUARDAR JUGADOR
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+
+        // 7. VISTA DASHBOARD AMV (Web/Desktop - Solo para simular el rol)
+        function renderAMVDashboardView() {
+            // Esta vista simula la interfaz de escritorio/web (AMV)
+            return `
+                <div class="h-full p-8 flex flex-col">
+                    <!-- Header de AMV Admin -->
+                    <header class="w-full bg-gray-800 text-white p-4 rounded-xl shadow-xl mb-6 flex justify-between items-start">
+                        <div>
+                            <h1 class="text-2xl font-bold flex items-center">
+                                <svg class="w-6 h-6 amv-green mr-2 p-1 rounded-full" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm-3 8a3 3 0 116 0 3 3 0 01-6 0z"></path></svg>
+                                Panel de Administración AMV
+                            </h1>
+                            <p class="text-sm text-gray-400">Verificación de Cumplimiento Normativo (Acceso Web)</p>
+                        </div>
+                        <button onclick="handleLogout()" title="Cerrar Sesión" class="py-2 px-3 bg-gray-700 text-white text-sm font-semibold rounded-lg hover:bg-gray-600 transition duration-150">
+                            <span class="hidden sm:inline">Cerrar Sesión</span>
+                            <svg class="w-6 h-6 inline-block sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </header>
+                    
+                    <!-- Resumen General -->
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="bg-white p-4 rounded-xl shadow-md text-center">
+                            <p class="text-4xl font-bold amv-text-red">12</p>
+                            <p class="text-sm text-gray-500">Documentos Pendientes (RF07)</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-md text-center">
+                            <p class="text-4xl font-bold text-green-600">85%</p>
+                            <p class="text-sm text-gray-500">Cumplimiento Total</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-md text-center">
+                            <p class="text-4xl font-bold text-blue-600">14</p>
+                            <p class="text-sm text-gray-500">Clubes Registrados (RF03)</p>
+                        </div>
+                    </div>
+
+                    <!-- Botones de Acciones Clave -->
+                    <div class="grid grid-cols-2 gap-4 mb-8">
+                        <button onclick="navigate('${views.reviewDocs}')"
+                            class="py-3 px-4 amv-red text-white font-bold rounded-xl shadow-lg transition duration-150 hover:bg-red-700">
+                            Revisar Pendientes (RF07)
+                        </button>
+                        <button onclick="navigate('${views.generateReport}')"
+                            class="py-3 px-4 amv-green text-white font-bold rounded-xl shadow-lg transition duration-150 hover:bg-green-700">
+                            Generar Reporte (RF10)
+                        </button>
+                    </div>
+
+                    <!-- Módulos de Administración (RF02, RF03) -->
+                    <div class="flex-grow bg-white p-6 rounded-xl shadow-md overflow-y-auto">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Módulos Administrativos</h3>
+                        <div class="space-y-3">
+                            <button onclick="navigate('${views.adminUsers}')"
+                                class="w-full text-left p-3 border-l-4 border-blue-500 bg-blue-50 hover:bg-blue-100 rounded-lg">
+                                <span class="font-semibold text-gray-800">Administración de Usuarios DT/Delegados (RF02)</span>
+                                <p class="text-xs text-gray-500">Crear, modificar y dar de baja cuentas de clubes.</p>
+                            </button>
+                            <button onclick="showMessage('Funcionalidad: Navegar a Módulo de Registro de Clubes (RF03)')"
+                                class="w-full text-left p-3 border-l-4 border-purple-500 bg-purple-50 hover:bg-purple-100 rounded-lg">
+                                <span class="font-semibold text-gray-800">Registro de Clubes (RF03)</span>
+                                <p class="text-xs text-gray-500">Registrar y gestionar clubes miembros de la AMV.</p>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 8. VISTA AMV - Administración de Usuarios (RF02)
+        function renderAdminUsersView() {
+            const usersHtml = clubData.users.map(user => `
+                <tr class="border-b hover:bg-gray-50">
+                    <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${user.name}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${user.club}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.status === 'Activo' ? 'amv-green text-white' : 'status-rechazado text-white'}">
+                            ${user.status}
+                        </span>
+                    </td>
+                    <td class="px-6 py-3 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="showMessage('Funcionalidad: Editar usuario ${user.id}')" class="text-blue-600 hover:text-blue-900 mr-3">Editar</button>
+                        <button onclick="showMessage('Funcionalidad: Dar de Baja usuario ${user.id}')" class="amv-text-red hover:text-red-900">Baja</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <div class="h-full p-8 flex flex-col">
+                    <header class="w-full bg-gray-800 text-white p-4 rounded-xl shadow-xl mb-6 flex justify-between items-center">
+                        <h1 class="text-2xl font-bold">Administración de Usuarios (RF02)</h1>
+                        <div class="flex items-center space-x-3">
+                            <button onclick="navigate('${views.dashboard}')" class="py-2 px-3 bg-gray-700 text-white text-sm font-semibold rounded-lg hover:bg-gray-600 transition duration-150">
+                                Volver al Dashboard
+                            </button>
+                            <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-gray-600 transition duration-150">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="bg-white p-6 rounded-xl shadow-md flex-grow overflow-y-auto">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold text-gray-800">DTs y Delegados Registrados</h3>
+                            <button onclick="showMessage('Funcionalidad: Mostrar formulario de Alta de Usuario')" class="py-2 px-4 amv-green text-white font-bold rounded-lg shadow-md hover:bg-green-700 transition">
+                                + Nuevo Usuario
+                            </button>
+                        </div>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Club</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Acciones</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${usersHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 9. VISTA AMV - Revisión de Documentos Pendientes (RF07)
+        function renderReviewDocsView() {
+            // Mock de documentos pendientes de revisión para el AMV
+            const docsToReview = [
+                { id: 1, player: "Martina Pérez", club: "Club Atlético Volley", document: "Ficha Médica", status: "Pendiente", action: "Revisar" },
+                { id: 2, player: "Juan Lopez", club: "Club Atlético Volley", document: "Copia DNI", status: "Rechazado (Resubida)", action: "Ver Rechazo" },
+                { id: 3, player: "Sofía Rodríguez", club: "Club Central Voley", document: "Autorización Tutor", status: "Pendiente", action: "Revisar" },
+            ];
+
+            const docsHtml = docsToReview.map(doc => `
+                <tr class="border-b hover:bg-gray-50">
+                    <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${doc.player}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${doc.club}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${doc.document}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${doc.status.includes('Rechazado') ? 'status-rechazado' : 'status-pendiente'} text-white">
+                            ${doc.status}
+                        </span>
+                    </td>
+                    <td class="px-6 py-3 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="showMessage('Funcionalidad: Abrir Visor de Documentos para ${doc.player}')" class="amv-text-red hover:text-red-700 font-bold">
+                            ${doc.action}
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <div class="h-full p-8 flex flex-col">
+                    <header class="w-full bg-gray-800 text-white p-4 rounded-xl shadow-xl mb-6 flex justify-between items-center">
+                        <h1 class="text-2xl font-bold">Revisión de Documentos (RF07)</h1>
+                        <div class="flex items-center space-x-3">
+                            <button onclick="navigate('${views.dashboard}')" class="py-2 px-3 bg-gray-700 text-white text-sm font-semibold rounded-lg hover:bg-gray-600 transition duration-150">
+                                Volver al Dashboard
+                            </button>
+                            <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-gray-600 transition duration-150">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="bg-white p-6 rounded-xl shadow-md flex-grow overflow-y-auto">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Documentos Pendientes de Aprobación</h3>
+                        <p class="text-gray-600 mb-6">Total de documentos esperando revisión: ${docsToReview.length}</p>
+
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jugador</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Club</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Documento</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Acción</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${docsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 10. VISTA AMV - Generación de Reportes (RF10)
+        function renderGenerateReportView() {
+            // Mock de Reporte de Cumplimiento
+            const reportData = [
+                { club: "Club Atlético Volley", category: "Sub 14 Femenino", total: 15, incomplete: 4, percentage: "73%", status: "Riesgo Medio" },
+                { club: "Club Central Voley", category: "Mayores Masculino", total: 20, incomplete: 18, percentage: "10%", status: "Riesgo Alto" },
+                { club: "Club Deportivo Unión", category: "Sub 16 Masculino", total: 10, incomplete: 0, percentage: "100%", status: "Al Día" },
+            ];
+
+            const reportHtml = reportData.map(item => `
+                <tr class="border-b hover:bg-gray-50">
+                    <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${item.club}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${item.category}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${item.incomplete}/${item.total}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${item.percentage}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${item.status.includes('Alto') ? 'status-rechazado text-white' : item.status.includes('Medio') ? 'status-pendiente text-white' : 'amv-green text-white'}">
+                            ${item.status}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <div class="h-full p-8 flex flex-col">
+                    <header class="w-full bg-gray-800 text-white p-4 rounded-xl shadow-xl mb-6 flex justify-between items-center">
+                        <h1 class="text-2xl font-bold">Generación de Reportes (RF10)</h1>
+                        <div class="flex items-center space-x-3">
+                            <button onclick="navigate('${views.dashboard}')" class="py-2 px-3 bg-gray-700 text-white text-sm font-semibold rounded-lg hover:bg-gray-600 transition duration-150">
+                                Volver al Dashboard
+                            </button>
+                            <button onclick="handleLogout()" title="Cerrar Sesión" class="p-1 rounded-full hover:bg-gray-600 transition duration-150">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="bg-white p-6 rounded-xl shadow-md flex-grow overflow-y-auto">
+                        <div class="mb-6 border-b pb-4">
+                            <h3 class="text-xl font-bold text-gray-800 mb-3">Opciones de Reporte</h3>
+                            <div class="flex space-x-4">
+                                <select class="p-2 border border-gray-300 rounded-lg">
+                                    <option>Reporte por Club</option>
+                                    <option>Reporte por Categoría</option>
+                                </select>
+                                <button onclick="showMessage('Funcionalidad: Descargar reporte en PDF/CSV')" class="py-2 px-4 amv-green text-white font-bold rounded-lg shadow-md hover:bg-green-700 transition">
+                                    Descargar (PDF)
+                                </button>
+                            </div>
+                        </div>
+
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">Reporte de Incumplimiento (Simulación)</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Club</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equipo</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incompletos</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">% Cumplimiento</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nivel de Riesgo</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${reportHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+
+        /** LÓGICA DE CONTROL **/
+
+        function handleLogin() {
+            const email = document.getElementById('user-email').value.trim().toLowerCase();
+            const mobileContainer = document.getElementById('mobile-container');
+
+            // Simulación de roles basada en el email/usuario
+            if (email === 'amv') {
+                // Personal AMV -> Vista Web/Desktop (se simulará cambiando el contenedor)
+                currentState.userRole = 'amv';
+                mobileContainer.classList.add('amv-admin-mode');
+                render();
+            } else if (email === 'club' || email === 'dt') {
+                // DT/Delegado -> Vista Mobile App
+                currentState.userRole = 'club';
+                mobileContainer.classList.remove('amv-admin-mode');
+                navigate(views.dashboard);
+            } else {
+                showMessage("Credenciales incorrectas. Intente con 'club' o 'amv'.");
+            }
+        }
+
+        function render() {
+            const container = document.getElementById('views');
+            let htmlContent = '';
+
+            if (currentState.userRole === 'amv') {
+                // Flujo Web/Desktop (Personal AMV)
+                switch (currentState.currentView) {
+                    case views.adminUsers:
+                        htmlContent = renderAdminUsersView();
+                        break;
+                    case views.reviewDocs:
+                        htmlContent = renderReviewDocsView();
+                        break;
+                    case views.generateReport:
+                        htmlContent = renderGenerateReportView();
+                        break;
+                    case views.dashboard:
+                    default:
+                        htmlContent = renderAMVDashboardView();
+                        break;
+                }
+            } else {
+                // Flujo móvil (DT/Delegado)
+                switch (currentState.currentView) {
+                    case views.login:
+                        htmlContent = renderLoginView();
+                        break;
+                    case views.dashboard:
+                        htmlContent = renderDashboardView();
+                        break;
+                    case views.players:
+                        htmlContent = renderPlayersView();
+                        break;
+                    case views.document:
+                        htmlContent = renderDocumentView();
+                        break;
+                    case views.newTeam:
+                        htmlContent = renderNewTeamView();
+                        break;
+                    case views.newPlayer:
+                        htmlContent = renderNewPlayerView();
+                        break;
+                    default:
+                        htmlContent = renderLoginView();
+                }
+            }
+
+            container.innerHTML = htmlContent;
+        }
+
+        // Inicio de la aplicación
+        window.onload = () => {
+            render();
+            // Para asegurar que la imagen del logo se muestre, se usa el nombre del archivo subido.
+            document.querySelector('img[alt="Logo AMV"]').src = 'logoAMV.png';
+        };
+    </script>
+</body>
+</html>
